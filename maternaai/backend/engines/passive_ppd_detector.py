@@ -71,12 +71,19 @@ async def detect_passive_signals(patient_id: str, days: int = 7) -> dict:
         1 for w in wb_docs if w.get("hormonal", {}).get("crying_spells", False)
     )
 
-    # ─── Response length from PPD conversations ───────────────────────────────
+    # ─── Response length & Negative words from PPD conversations ──────────────
     all_user_messages = []
+    negative_word_total = 0
     for ppd in ppd_docs:
         for turn in ppd.get("conversation_transcript", []):
             if turn.get("role") == "user":
-                all_user_messages.append(turn.get("message", ""))
+                msg = turn.get("message", "")
+                all_user_messages.append(msg)
+                # Count negative words if not already counted in ppd_assessments
+                # (Simple check here for trend analysis)
+                negative_words = ["sad", "tired", "alone", "scared", "hopeless", "empty", "nothing", "pointless", "numb"]
+                negative_word_total += sum(1 for word in negative_words if word in msg.lower())
+
     response_length_avg = (
         sum(len(m.split()) for m in all_user_messages) / len(all_user_messages)
         if all_user_messages else 20

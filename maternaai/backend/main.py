@@ -4,6 +4,7 @@ from backend.routes.analysis import router as analysis_router
 from backend.routes.users import router as users_router
 from backend.routes.doctors import router as doctors_router
 from backend.routes.wellbeing import router as wellbeing_router
+from backend.routes.ppd import router as ppd_router
 
 app = FastAPI(title="MaternaAI API", version="1.0.0")
 
@@ -19,6 +20,7 @@ app.include_router(analysis_router)
 app.include_router(users_router, prefix="/users")
 app.include_router(doctors_router, prefix="/doctors")
 app.include_router(wellbeing_router)
+app.include_router(ppd_router)
 
 @app.get("/health")
 def health_check():

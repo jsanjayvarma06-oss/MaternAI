@@ -152,9 +152,12 @@ export default function DoctorDashboardPage() {
   );
 }
 
+import { PPDCharts } from '@/components/PPDCharts';
+
 // Modal Component for Patient Details
 function PatientDetailModal({ patientId, onClose }: { patientId: string, onClose: () => void }) {
   const [detailData, setDetailData] = useState<any>(null);
+  const [activeTab, setActiveTab] = useState<'physical' | 'mental'>('physical');
 
   useEffect(() => {
     fetch(`http://localhost:8000/doctors/patient/${patientId}`)
@@ -189,49 +192,79 @@ function PatientDetailModal({ patientId, onClose }: { patientId: string, onClose
               </button>
             </div>
 
+            {/* Tabs */}
+            <div className="px-6 border-b border-gray-100 dark:border-gray-800 flex gap-8">
+              <button 
+                onClick={() => setActiveTab('physical')}
+                className={`py-4 text-sm font-bold border-b-2 transition-colors ${activeTab === 'physical' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-400 hover:text-gray-600'}`}
+              >
+                Physical Health
+              </button>
+              <button 
+                onClick={() => setActiveTab('mental')}
+                className={`py-4 text-sm font-bold border-b-2 transition-colors ${activeTab === 'mental' ? 'border-pink-500 text-pink-600' : 'border-transparent text-gray-400 hover:text-gray-600'}`}
+              >
+                Mental Wellbeing
+              </button>
+            </div>
+
             {/* Content */}
             <div className="p-6 space-y-6">
               
-              {/* Alert Ribbon */}
-              {detailData.latest_analysis && (
-                 <div className={`p-4 rounded-2xl flex items-center gap-3 shadow-sm ${
-                   detailData.latest_analysis.alert_level === 'RED' ? 'bg-red-50 text-red-900 border border-red-100' :
-                   detailData.latest_analysis.alert_level === 'YELLOW' ? 'bg-amber-50 text-amber-900 border border-amber-100' :
-                   'bg-emerald-50 text-emerald-900 border border-emerald-100'
-                 }`}>
-                   <ShieldAlert className="w-6 h-6" />
-                   <div>
-                     <h4 className="font-bold">Latest Alert Level: {detailData.latest_analysis.alert_level}</h4>
-                     <p className="text-sm opacity-90">{detailData.latest_analysis.patient_message}</p>
-                   </div>
-                 </div>
-              )}
-
-              {/* 7-Day Charts */}
-              {detailData.history && detailData.history.length > 0 ? (
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  <div className="lg:col-span-2">
-                    <DashboardCharts history={detailData.history} />
-                  </div>
-                  <div className="lg:col-span-1 space-y-6">
-                    {/* Insights Box */}
-                    <div className="bg-gradient-to-br from-indigo-50 to-pink-50 dark:from-indigo-900/20 dark:to-pink-900/20 rounded-3xl p-6 border border-indigo-100 dark:border-indigo-800/30">
-                      <h4 className="font-bold text-indigo-900 dark:text-indigo-300 flex items-center gap-2 mb-4">
-                        <BrainCircuit className="w-5 h-5" /> Clinical Insights
-                      </h4>
-                      <ul className="space-y-3">
-                        {detailData.latest_analysis?.insights?.map((ins: string, i: number) => (
-                           <li key={i} className="text-sm text-gray-700 leading-snug flex items-start gap-2">
-                             <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 mt-1.5 shrink-0" />
-                             {ins}
-                           </li>
-                        ))}
-                      </ul>
+              {activeTab === 'physical' ? (
+                <>
+                  {/* Alert Ribbon */}
+                  {detailData.latest_analysis && (
+                    <div className={`p-4 rounded-2xl flex items-center gap-3 shadow-sm ${
+                      detailData.latest_analysis.alert_level === 'RED' ? 'bg-red-50 text-red-900 border border-red-100' :
+                      detailData.latest_analysis.alert_level === 'YELLOW' ? 'bg-amber-50 text-amber-900 border border-amber-100' :
+                      'bg-emerald-50 text-emerald-900 border border-emerald-100'
+                    }`}>
+                      <ShieldAlert className="w-6 h-6" />
+                      <div>
+                        <h4 className="font-bold">Latest Alert Level: {detailData.latest_analysis.alert_level}</h4>
+                        <p className="text-sm opacity-90">{detailData.latest_analysis.patient_message}</p>
+                      </div>
                     </div>
-                  </div>
-                </div>
+                  )}
+
+                  {/* 7-Day Charts */}
+                  {detailData.history && detailData.history.length > 0 ? (
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                      <div className="lg:col-span-2">
+                        <DashboardCharts history={detailData.history} />
+                      </div>
+                      <div className="lg:col-span-1 space-y-6">
+                        {/* Insights Box */}
+                        <div className="bg-gradient-to-br from-indigo-50 to-pink-50 dark:from-indigo-900/20 dark:to-pink-900/20 rounded-3xl p-6 border border-indigo-100 dark:border-indigo-800/30">
+                          <h4 className="font-bold text-indigo-900 dark:text-indigo-300 flex items-center gap-2 mb-4">
+                            <BrainCircuit className="w-5 h-5" /> Clinical Insights
+                          </h4>
+                          <ul className="space-y-3">
+                            {detailData.latest_analysis?.insights?.map((ins: string, i: number) => (
+                              <li key={i} className="text-sm text-gray-700 leading-snug flex items-start gap-2">
+                                <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 mt-1.5 shrink-0" />
+                                {ins}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-gray-500 italic p-4 text-center">No check-in history available.</p>
+                  )}
+                </>
               ) : (
-                <p className="text-gray-500 italic p-4 text-center">No check-in history available for this patient.</p>
+                <div className="space-y-6">
+                  {detailData.ppd_history && detailData.ppd_history.length > 0 ? (
+                    <PPDCharts ppdHistory={detailData.ppd_history} />
+                  ) : (
+                    <div className="p-12 text-center bg-gray-50 dark:bg-gray-900 rounded-3xl border-2 border-dashed border-gray-200 dark:border-gray-800">
+                      <p className="text-gray-500 font-medium">No PPD assessments recorded for this patient.</p>
+                    </div>
+                  )}
+                </div>
               )}
 
             </div>

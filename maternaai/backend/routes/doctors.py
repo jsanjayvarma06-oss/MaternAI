@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from backend.db.queries import get_doctor_patients, get_unread_alerts
-from backend.db.mongodb import users_collection, analysis_results_collection, readings_collection
+from backend.db.mongodb import users_collection, analysis_results_collection, readings_collection, ppd_assessments_collection
 
 router = APIRouter()
 
@@ -50,10 +50,16 @@ async def get_patient_details(patient_id: str):
         if latest:
             latest["_id"] = str(latest["_id"])
 
+        ppd_history = await ppd_assessments_collection.find({"patient_id": patient_id})\
+             .sort("timestamp", -1).limit(10).to_list(length=10)
+        for p in ppd_history:
+            p["_id"] = str(p["_id"])
+
         return {
             "patient": patient,
             "history": history,
-            "latest_analysis": latest
+            "latest_analysis": latest,
+            "ppd_history": ppd_history
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -1,82 +1,83 @@
-"""
-Engine 2 — PPD Alert Service
-Routes CRISIS/HIGH/MODERATE/LOW risk to appropriate MongoDB alerts.
-"""
 from datetime import datetime
-from typing import Optional
-
+from backend.db.mongodb import alerts_collection, users_collection
 
 async def handle_ppd_risk(
     patient_id: str,
     risk_level: str,
     flags: dict,
-    patient_name: str = "Patient",
-    doctor_id: Optional[str] = None,
     epds_total: int = 0
 ):
-    from backend.db.mongodb import alerts_collection, users_collection
+    """
+    risk_level: "low", "moderate", "high", "crisis"
+    flags: { "q10_triggered": bool, ... }
+    """
+    
+    # Get patient info for context
+    patient = await users_collection.find_one({"id": patient_id})
+    patient_name = patient.get("name", "Patient") if patient else "Patient"
+    doctor_id = patient.get("doctor_id") if patient else None
 
-    timestamp = datetime.utcnow().isoformat()
-    result = {"alerts_created": [], "crisis_resources_shown": False}
-
+    # CRISIS (Q10 triggered)
     if risk_level == "crisis" or flags.get("q10_triggered"):
-        # CRISIS: immediate RED alert, show resources
+        # Create CRISIS alert
         alert = {
-            "doctor_id": doctor_id,
             "patient_id": patient_id,
             "patient_name": patient_name,
-            "status": "unread",
-            "timestamp": timestamp,
-            "alert_level": "PPD_CRISIS",
+            "doctor_id": doctor_id,
+            "type": "PPD_CRISIS",
             "urgency": "immediate",
-            "clinical_summary": (
-                f"CRISIS flag triggered. Patient may be at immediate risk. "
-                f"Q10 triggered: {flags.get('q10_triggered', False)}. "
-                f"Immediate contact required."
-            ),
-            "q10_triggered": flags.get("q10_triggered", False),
-            "epds_total": epds_total,
+            "status": "active",
+            "timestamp": datetime.now().isoformat(),
+            "message": f"CRITICAL: Emergency PPD attention required for {patient_name}. Self-harm signals detected.",
+            "metadata": {
+                "epds_score": epds_total,
+                "q10_triggered": True,
+                "flags": flags
+            }
         }
-        if doctor_id:
-            await alerts_collection.insert_one(alert)
-        result["alerts_created"].append("PPD_CRISIS")
-        result["crisis_resources_shown"] = True
+        await alerts_collection.insert_one(alert)
+        # In a real app, send SMS/Email/Push here
+        print(f"CRISIS NOTIFICATION SENT FOR {patient_id}")
 
+    # HIGH
     elif risk_level == "high":
-        # HIGH: amber alert, urgency=today
         alert = {
-            "doctor_id": doctor_id,
             "patient_id": patient_id,
             "patient_name": patient_name,
-            "status": "unread",
-            "timestamp": timestamp,
-            "alert_level": "PPD_HIGH",
+            "doctor_id": doctor_id,
+            "type": "PPD_HIGH",
             "urgency": "today",
-            "clinical_summary": (
-                f"EPDS total score: {epds_total} (threshold for clinical concern: 12). "
-                f"Consecutive low mood days: {flags.get('consecutive_low_mood', 0)}. "
-                f"Social withdrawal: {flags.get('social_withdrawal', False)}. "
-                "Follow-up recommended today."
-            ),
-            "epds_total": epds_total,
+            "status": "unread",
+            "timestamp": datetime.now().isoformat(),
+            "message": f"High PPD risk detected for {patient_name}. EPDS Score: {epds_total}. Recommend clinical follow-up today.",
+            "metadata": {
+                "epds_score": epds_total,
+                "flags": flags
+            }
         }
-        if doctor_id:
-            await alerts_collection.insert_one(alert)
-        result["alerts_created"].append("PPD_HIGH")
+        await alerts_collection.insert_one(alert)
 
+    # MODERATE
     elif risk_level == "moderate":
-        # MODERATE: log in analysis_results, amber badge — no imperative alert
-        from backend.db.mongodb import analysis_results_collection
-        await analysis_results_collection.update_one(
-            {"patient_id": patient_id},
-            {"$set": {
-                "ppd_moderate_flag": True,
-                "ppd_epds_total": epds_total,
-                "ppd_timestamp": timestamp
-            }},
-            sort=[("timestamp", -1)]
-        )
-        result["alerts_created"].append("PPD_MODERATE_FLAG")
+        alert = {
+            "patient_id": patient_id,
+            "patient_name": patient_name,
+            "doctor_id": doctor_id,
+            "type": "PPD_MODERATE",
+            "urgency": "low",
+            "status": "unread",
+            "timestamp": datetime.now().isoformat(),
+            "message": f"Moderate PPD risk for {patient_name}. EPDS Score: {epds_total}. Monitor closely.",
+            "metadata": {
+                "epds_score": epds_total,
+                "flags": flags
+            }
+        }
+        await alerts_collection.insert_one(alert)
 
-    # LOW: log only — no alert
-    return result
+    # LOW
+    else:
+        # Just log for data/trends, no immediate alert needed
+        pass
+
+    return True

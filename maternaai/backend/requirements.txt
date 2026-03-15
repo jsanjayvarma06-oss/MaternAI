@@ -2,6 +2,7 @@ fastapi
 pydantic
 firebase-admin
 pytest
-google-genai
+google-generativeai
+python-dotenv
 anthropic
 uvicorn[standard]

@@ -8,6 +8,8 @@ import CheckInSuccess from '@/components/animations/CheckInSuccess';
 import { auth } from '@/lib/firebase';
 import confetti from 'canvas-confetti';
 
+import PPDChat from '@/components/PPDChat';
+
 const variants = {
   enter: (direction: number) => ({ x: direction > 0 ? 100 : -100, opacity: 0 }),
   center: { x: 0, opacity: 1 },
@@ -17,6 +19,7 @@ const variants = {
 export default function CheckinPage() {
   const router = useRouter();
   const [[step, direction], setPage] = useState([1, 0]);
+  const [showFullChat, setShowFullChat] = useState(false);
 
   // FIX 2: Check if user already checked in today on page load → redirect to dashboard
   useEffect(() => {
@@ -26,13 +29,21 @@ export default function CheckinPage() {
         return;
       }
       try {
+        // Check checkin status
         const res = await fetch(`http://localhost:8000/users/status/${user.uid}`);
         if (res.ok) {
           const { has_checked_in_today } = await res.json();
           if (has_checked_in_today) {
-            // Already checked in today — go straight to dashboard
             router.replace('/dashboard');
+            return;
           }
+        }
+
+        // Frequency Logic: Should show full PPD chat?
+        const ppdRes = await fetch(`/api/ppd?patientId=${user.uid}`);
+        if (ppdRes.ok) {
+          const { show_full_chat } = await ppdRes.json();
+          setShowFullChat(show_full_chat);
         }
       } catch (e) {
         console.error('Status check failed', e);
@@ -161,7 +172,20 @@ export default function CheckinPage() {
             {step === 1 && <Step1Vitals vitals={vitals} setVitals={setVitals} onNext={() => nextStep(2)} />}
             {step === 2 && <Step2Symptoms symptoms={symptoms} setSymptoms={setSymptoms} onNext={() => nextStep(3)} />}
             {step === 3 && <Step3Photo setWound={setWound} onNext={() => nextStep(4)} />}
-            {step === 4 && <Step4Mood onNext={(m: number) => submitCheckin(m)} loading={loading} />}
+            {step === 4 && (
+              showFullChat ? (
+                <div className="flex flex-col h-full">
+                  <h2 className="font-display text-3xl font-semibold mb-6 text-center text-text-primary">Daily Check-in with Maya</h2>
+                  <PPDChat 
+                    patientId={auth.currentUser?.uid || ''} 
+                    onComplete={(m: number) => submitCheckin(m)} 
+                    onSkip={() => submitCheckin(3)}
+                  />
+                </div>
+              ) : (
+                <Step4Mood onNext={(m: number) => submitCheckin(m)} loading={loading} />
+              )
+            )}
             {step === 5 && <Step5Wellbeing wellbeing={wellbeing} setWellbeing={setWellbeing} onNext={() => nextStep(6)} />}
             {step === 6 && <Step6Wellbeing2 wellbeing={wellbeing} setWellbeing={setWellbeing} onNext={() => nextStep(7)} />}
             {step === 7 && <Step7Results result={analysisResult} onClose={closeSheet} />}
