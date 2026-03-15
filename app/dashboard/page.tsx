@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { FlippableVital } from '@/components/FlippableVital';
 import { DashboardCharts } from '@/components/DashboardCharts';
 import { AlertBanner } from '@/components/AlertBanner';
+import { WellbeingSection } from '@/components/WellbeingSection';
 import { auth } from '@/lib/firebase';
 import { useRouter } from 'next/navigation';
 import { ShieldAlert, BrainCircuit, Activity, Sparkles, LogOut } from 'lucide-react';
@@ -13,6 +14,8 @@ export default function DashboardPage() {
   const router = useRouter();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [wellbeingLatest, setWellbeingLatest] = useState<any>(null);
+  const [wellbeingTrend, setWellbeingTrend] = useState<any>(null);
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (user) => {
@@ -31,6 +34,23 @@ export default function DashboardPage() {
         }
 
         setData(json);
+
+        // Engine 4: Fetch wellbeing data in parallel (non-blocking)
+        try {
+          const [wbRes, trendRes] = await Promise.all([
+            fetch(`http://localhost:8000/wellbeing/${user.uid}`),
+            fetch(`http://localhost:8000/wellbeing/${user.uid}/trend`)
+          ]);
+          if (wbRes.ok) {
+            const wbJson = await wbRes.json();
+            setWellbeingLatest(wbJson.history?.[0] ?? null);
+          }
+          if (trendRes.ok) {
+            setWellbeingTrend(await trendRes.json());
+          }
+        } catch (wbErr) {
+          console.warn('Wellbeing data not available:', wbErr);
+        }
       } catch (e) {
         console.error(e);
       } finally {
@@ -219,6 +239,16 @@ export default function DashboardPage() {
             </div>
           </div>
 
+        </motion.div>
+
+        {/* Engine 4: Wellbeing Section */}
+        <motion.div variants={itemVariants}>
+          <WellbeingSection
+            wellbeingData={wellbeingLatest}
+            trend={wellbeingTrend}
+            latestAnalysis={latest_analysis}
+            dayPostDelivery={history[0]?.day_post_delivery ?? 0}
+          />
         </motion.div>
 
         {/* Check-in CTA */}

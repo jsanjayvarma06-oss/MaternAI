@@ -14,13 +14,13 @@ def _get_client():
         _client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY", ""))
     return _client
 
-async def generate_clinical_insight(reading: dict, history: list) -> dict:
+async def generate_clinical_insight(reading: dict, history: list, wellbeing_context: str = "") -> dict:
     prompt = f"""You are MaternaAI's postpartum health AI.
 Analyse this patient's daily reading and history.
 Return ONLY valid JSON (no markdown, no code blocks) with these exact keys:
 - patient_message: 2-3 warm sentences, plain language
 - recommended_action: one specific action
-- doctor_notification: {{ "required": bool, "urgency": "low"|"medium"|"high", "summary": string }}
+- doctor_notification: {{ "required": bool, "urgency": "low"|"medium"|"high", "summary": string, "ppd_risk_flag": bool }}
 - insights: list of up to 3 trend observations from the 7-day data
 
 Patient's Today Reading:
@@ -28,6 +28,10 @@ Patient's Today Reading:
 
 Patient's 7-Day History:
 {json.dumps(history[:7], indent=2, default=str)}"""
+
+    # Task 3: Append wellbeing context if available (Engine 4 integration)
+    if wellbeing_context:
+        prompt += f"\n\n{wellbeing_context}"
 
     try:
         client = _get_client()

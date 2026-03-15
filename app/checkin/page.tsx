@@ -51,6 +51,12 @@ export default function CheckinPage() {
     pain_level: 0, bleeding_level: 'none', mood_score: 5
   });
   const [wound, setWound] = useState({ applicable: false, photo_score: null as string | null });
+  // Engine 4 — Wellbeing state
+  const [wellbeing, setWellbeing] = useState({
+    sleep: { total_hours: 5, longest_stretch_hours: 2, night_wakings: 2, sleep_quality: 3, nap_taken: false, nap_duration_minutes: null as number | null },
+    activity: { walked_today: false, walk_duration_minutes: null as number | null, exercise_attempted: false, exercise_type: null as string | null, felt_too_tired_to_move: false, steps_count: null as number | null },
+    hormonal: { mood_score: 3, crying_spells: false, felt_overwhelmed: false, felt_bonded_with_baby: true, anxiety_level: 2, support_received_today: true }
+  });
   // FIX 6: loading state to prevent double-submission
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -65,6 +71,7 @@ export default function CheckinPage() {
   };
 
   // FIX 1 + 4: Check response before redirecting; redirect to /dashboard on success
+  // Engine 4: After saving reading, also POST wellbeing data
   const submitCheckin = async (finalMood: number) => {
     setLoading(true);
     setError('');
@@ -90,17 +97,30 @@ export default function CheckinPage() {
 
       const data = await res.json();
 
-      // FIX 4: Only proceed if save was successful
       if (!res.ok || !data.success) {
         setError('Failed to save your check-in. Please try again.');
         setLoading(false);
         return;
       }
 
-      // Store the analysis result from the wrapper
       setAnalysisResult(data.analysis);
+
+      // Engine 4: save wellbeing log (non-blocking — don't fail check-in if this fails)
+      try {
+        await fetch("http://localhost:8000/wellbeing", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            patient_id: user.uid,
+            ...wellbeing
+          })
+        });
+      } catch (wb_err) {
+        console.warn('Wellbeing save failed (non-critical):', wb_err);
+      }
+
       confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
-      nextStep(5);
+      nextStep(7);
 
     } catch (e) {
       console.error(e);
@@ -115,7 +135,7 @@ export default function CheckinPage() {
       <div className="pt-12 pb-4 px-6 flex flex-col items-center relative">
         <button onClick={closeSheet} className="absolute left-6 top-12 p-2 rounded-full hover:bg-surface active:scale-95 transition-transform"><X className="w-6 h-6 text-text-secondary" /></button>
         <div className="flex gap-2 items-center justify-center w-full mt-2">
-          {[1, 2, 3, 4, 5].map((s) => (
+          {[1, 2, 3, 4, 5, 6, 7].map((s) => (
             <motion.div
               key={s}
               className={`flex items-center justify-center rounded-full transition-colors duration-300 ${s === step ? "bg-primary w-10 h-3" : s < step ? "bg-success w-6 h-3" : "bg-text-muted/30 w-3 h-3"}`}
@@ -142,7 +162,9 @@ export default function CheckinPage() {
             {step === 2 && <Step2Symptoms symptoms={symptoms} setSymptoms={setSymptoms} onNext={() => nextStep(3)} />}
             {step === 3 && <Step3Photo setWound={setWound} onNext={() => nextStep(4)} />}
             {step === 4 && <Step4Mood onNext={(m: number) => submitCheckin(m)} loading={loading} />}
-            {step === 5 && <Step5Results result={analysisResult} onClose={closeSheet} />}
+            {step === 5 && <Step5Wellbeing wellbeing={wellbeing} setWellbeing={setWellbeing} onNext={() => nextStep(6)} />}
+            {step === 6 && <Step6Wellbeing2 wellbeing={wellbeing} setWellbeing={setWellbeing} onNext={() => nextStep(7)} />}
+            {step === 7 && <Step7Results result={analysisResult} onClose={closeSheet} />}
           </motion.div>
         </AnimatePresence>
       </div>
@@ -289,9 +311,175 @@ function Step4Mood({ onNext, loading }: any) {
   );
 }
 
-// --- STEP 5: RESULTS ---
-// FIX 1: "Open Dashboard" button redirects to /dashboard
-function Step5Results({ result, onClose }: any) {
+// --- STEP 5: WELLBEING — Sleep & Activity ---
+function Step5Wellbeing({ wellbeing, setWellbeing, onNext }: any) {
+  const s = wellbeing.sleep;
+  const a = wellbeing.activity;
+  const setS = (k: string, v: any) => setWellbeing({ ...wellbeing, sleep: { ...s, [k]: v } });
+  const setA = (k: string, v: any) => setWellbeing({ ...wellbeing, activity: { ...a, [k]: v } });
+
+  return (
+    <div className="flex flex-col h-full max-w-sm mx-auto w-full pt-4">
+      <h2 className="font-display text-3xl font-semibold mb-6 text-center">How did you rest today?</h2>
+      <div className="space-y-4 flex-1 overflow-y-auto hide-scrollbar">
+
+        {/* Sleep */}
+        <div className="bg-surface p-4 rounded-2xl">
+          <p className="text-sm font-semibold mb-4">🌙 Sleep last night</p>
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs font-medium text-text-secondary block mb-1">Total hours slept</label>
+              <input type="number" step="0.5" min="0" max="24"
+                className="w-full text-2xl font-bold bg-transparent border-b outline-none"
+                value={s.total_hours} onChange={e => setS('total_hours', parseFloat(e.target.value) || 0)} />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-text-secondary block mb-1">Longest stretch (hours)</label>
+              <input type="number" step="0.5" min="0" max="12"
+                className="w-full text-xl font-bold bg-transparent border-b outline-none"
+                value={s.longest_stretch_hours} onChange={e => setS('longest_stretch_hours', parseFloat(e.target.value) || 0)} />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-text-secondary block mb-2">Baby wake-ups last night</label>
+              <div className="flex gap-2">
+                {[{label:'0', val:0},{label:'1-2', val:1},{label:'3-4', val:3},{label:'5+', val:5}].map(opt => (
+                  <button key={opt.label}
+                    onClick={() => setS('night_wakings', opt.val)}
+                    className={`flex-1 py-2 rounded-xl text-sm font-bold transition-colors ${s.night_wakings === opt.val ? 'bg-primary text-white' : 'bg-gray-100 text-text-secondary'}`}
+                  >{opt.label}</button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-text-secondary block mb-2">Sleep quality</label>
+              <div className="flex gap-2">
+                {[1,2,3,4,5].map(n => (
+                  <button key={n} onClick={() => setS('sleep_quality', n)}
+                    className={`text-2xl transition-transform active:scale-90 ${n <= s.sleep_quality ? '' : 'grayscale opacity-30'}`}>
+                    ⭐
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Activity */}
+        <div className="bg-surface p-4 rounded-2xl mb-8">
+          <p className="text-sm font-semibold mb-4">👣 Activity today</p>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium">Did you get a short walk?</label>
+              <div className="flex gap-2">
+                <button onClick={() => setA('walked_today', true)}
+                  className={`px-4 py-2 rounded-xl text-sm font-bold transition-colors ${a.walked_today ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-text-secondary'}`}>Yes</button>
+                <button onClick={() => setA('walked_today', false)}
+                  className={`px-4 py-2 rounded-xl text-sm font-bold transition-colors ${!a.walked_today ? 'bg-gray-300 text-gray-700' : 'bg-gray-100 text-text-secondary'}`}>No</button>
+              </div>
+            </div>
+            {a.walked_today && (
+              <div>
+                <label className="text-xs font-medium text-text-secondary block mb-1">How long? ({a.walk_duration_minutes ?? 15} mins)</label>
+                <input type="range" min="5" max="60" step="5" value={a.walk_duration_minutes ?? 15}
+                  onChange={e => setA('walk_duration_minutes', parseInt(e.target.value))}
+                  className="w-full accent-primary" />
+              </div>
+            )}
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium">Did exhaustion stop you moving?</label>
+              <div className="flex gap-2">
+                <button onClick={() => setA('felt_too_tired_to_move', true)}
+                  className={`px-4 py-2 rounded-xl text-sm font-bold transition-colors ${a.felt_too_tired_to_move ? 'bg-amber-400 text-white' : 'bg-gray-100 text-text-secondary'}`}>Yes</button>
+                <button onClick={() => setA('felt_too_tired_to_move', false)}
+                  className={`px-4 py-2 rounded-xl text-sm font-bold transition-colors ${!a.felt_too_tired_to_move ? 'bg-gray-300 text-gray-700' : 'bg-gray-100 text-text-secondary'}`}>No</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <button onClick={onNext} className="mt-4 mb-8 w-full py-4 bg-primary text-white rounded-2xl font-bold text-lg active:scale-95 transition-all shadow-soft">Continue</button>
+    </div>
+  );
+}
+
+// --- STEP 6: WELLBEING — Emotional check ---
+function Step6Wellbeing2({ wellbeing, setWellbeing, onNext }: any) {
+  const h = wellbeing.hormonal;
+  const setH = (k: string, v: any) => setWellbeing({ ...wellbeing, hormonal: { ...h, [k]: v } });
+
+  const bondingOptions = [
+    { label: 'Yes 💛', val: true },
+    { label: 'Somewhat 🤍', val: null },
+    { label: 'Not really', val: false },
+  ];
+
+  return (
+    <div className="flex flex-col h-full max-w-sm mx-auto w-full pt-4">
+      <h2 className="font-display text-3xl font-semibold mb-2 text-center">How are you feeling?</h2>
+      <p className="text-center text-text-secondary text-sm mb-6">There are no wrong answers here — this is just for you.</p>
+      <div className="space-y-5 flex-1 overflow-y-auto hide-scrollbar">
+
+        <div className="bg-surface p-4 rounded-2xl">
+          <label className="text-sm font-medium block mb-3">Did you feel connected to your baby today?</label>
+          <div className="flex gap-2">
+            {bondingOptions.map(opt => (
+              <button key={opt.label} onClick={() => setH('felt_bonded_with_baby', opt.val === null ? true : opt.val)}
+                className={`flex-1 py-3 rounded-xl text-sm font-semibold transition-colors ${
+                  (opt.val === true && h.felt_bonded_with_baby === true) ||
+                  (opt.val === false && h.felt_bonded_with_baby === false)
+                    ? 'bg-primary text-white' : 'bg-gray-100 text-text-secondary'
+                }`}>{opt.label}</button>
+            ))}
+          </div>
+        </div>
+
+        <div className="bg-surface p-4 rounded-2xl">
+          <label className="text-sm font-medium block mb-3">Did you have support from family or partner?</label>
+          <div className="flex gap-3">
+            <button onClick={() => setH('support_received_today', true)}
+              className={`flex-1 py-3 rounded-xl text-sm font-bold transition-colors ${h.support_received_today ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-text-secondary'}`}>Yes</button>
+            <button onClick={() => setH('support_received_today', false)}
+              className={`flex-1 py-3 rounded-xl text-sm font-bold transition-colors ${!h.support_received_today ? 'bg-gray-300 text-gray-700' : 'bg-gray-100 text-text-secondary'}`}>No</button>
+          </div>
+        </div>
+
+        <div className="bg-surface p-4 rounded-2xl">
+          <label className="text-sm font-medium block mb-3">Any tears or crying today? <span className="text-text-muted text-xs">(that&apos;s okay)</span></label>
+          <div className="flex gap-3">
+            <button onClick={() => setH('crying_spells', true)}
+              className={`flex-1 py-3 rounded-xl text-sm font-bold transition-colors ${h.crying_spells ? 'bg-primary text-white' : 'bg-gray-100 text-text-secondary'}`}>Yes</button>
+            <button onClick={() => setH('crying_spells', false)}
+              className={`flex-1 py-3 rounded-xl text-sm font-bold transition-colors ${!h.crying_spells ? 'bg-gray-300 text-gray-700' : 'bg-gray-100 text-text-secondary'}`}>No</button>
+          </div>
+        </div>
+
+        <div className="bg-surface p-4 rounded-2xl">
+          <label className="text-sm font-medium block mb-2">Anxiety level today (1 = calm, 5 = very anxious)</label>
+          <input type="range" min="1" max="5" step="1" value={h.anxiety_level}
+            onChange={e => setH('anxiety_level', parseInt(e.target.value))}
+            className="w-full accent-primary" />
+          <div className="flex justify-between text-xs text-text-muted mt-1">
+            <span>Calm 😌</span><span>Very anxious 😰</span>
+          </div>
+        </div>
+
+        <div className="bg-surface p-4 rounded-2xl mb-8">
+          <label className="text-sm font-medium block mb-3">Did you feel overwhelmed today?</label>
+          <div className="flex gap-3">
+            <button onClick={() => setH('felt_overwhelmed', true)}
+              className={`flex-1 py-3 rounded-xl text-sm font-bold transition-colors ${h.felt_overwhelmed ? 'bg-amber-400 text-white' : 'bg-gray-100 text-text-secondary'}`}>Yes</button>
+            <button onClick={() => setH('felt_overwhelmed', false)}
+              className={`flex-1 py-3 rounded-xl text-sm font-bold transition-colors ${!h.felt_overwhelmed ? 'bg-gray-300 text-gray-700' : 'bg-gray-100 text-text-secondary'}`}>No</button>
+          </div>
+        </div>
+      </div>
+      <button onClick={onNext} className="mt-4 mb-8 w-full py-4 bg-primary text-white rounded-2xl font-bold text-lg active:scale-95 transition-all shadow-soft">All done — see my results</button>
+    </div>
+  );
+}
+
+// --- STEP 7: RESULTS (renamed from Step5Results) ---
+function Step7Results({ result, onClose }: any) {
   const isGreen = result?.alert_level === "GREEN";
   return (
     <div className="flex flex-col h-full max-w-sm mx-auto w-full pt-8 text-center items-center justify-center">
@@ -299,14 +487,13 @@ function Step5Results({ result, onClose }: any) {
       <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.8 }}>
         <h2 className="font-display text-3xl font-semibold mb-2 text-text-primary">{result?.patient_message || "All done."}</h2>
         <p className="text-text-secondary mb-8 text-lg">{result?.recommended_action || "Rest up."}</p>
-        {result?.doctor_notification && (
+        {result?.doctor_notification?.required && (
           <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-left mb-12 shadow-soft">
             <p className="font-semibold text-red-700 flex items-center gap-2 mb-1">Your doctor was notified.</p>
           </div>
         )}
       </motion.div>
       <div className="w-full mt-auto mb-8">
-        {/* FIX 1: redirect to /dashboard */}
         <button onClick={onClose} className="w-full py-4 text-white rounded-2xl font-bold text-lg active:scale-95 transition-all shadow-soft bg-primary">
           Open Dashboard
         </button>
