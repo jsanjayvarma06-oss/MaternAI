@@ -25,6 +25,9 @@ class SymptomsReport(BaseModel):
     visual_disturbance: bool
     leg_swelling: bool
     shortness_of_breath: bool
+    nausea: bool
+    extreme_fatigue: bool
+    mood_score: int      # 1 to 5
 
 class WoundAssessment(BaseModel):
     applicable: bool
@@ -40,6 +43,7 @@ class RiskScores(BaseModel):
     hemorrhage: int = Field(ge=0, le=100)
     blood_clot: int = Field(ge=0, le=100)
     wound_infection: int = Field(ge=0, le=100)
+    ppd: int = Field(ge=0, le=100)
 
 class AnalysisResult(BaseModel):
     risk_scores: RiskScores
@@ -48,3 +52,17 @@ class AnalysisResult(BaseModel):
     recommended_action: str
     doctor_notification: bool
     urgency: str
+
+class WeeklyInsightsRequest(BaseModel):
+    week_number: int
+    delivery_type: str
+    avg_sleep_minutes: Optional[int] = None
+    sleep_fragmented: Optional[bool] = False
+    completed_milestones: int = 0
+    total_milestones: int = 0
+    custom_log_count: int = 0
+    recent_moods: list[dict] = []
+    checkin_streak: int = 0
+
+class WeeklyInsightResult(BaseModel):
+    insight: str

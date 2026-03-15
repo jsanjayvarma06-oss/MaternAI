@@ -19,7 +19,7 @@ const getStatusColor = (val: number, type: string) => {
   return "text-gray-700 dark:text-gray-300";
 };
 
-export const VitalsCard: React.FC<VitalsCardProps> = ({ systolic, diastolic, heartRate, temperature, spo2, weight }) => {
+export const VitalsCard: React.FC<VitalsCardProps> = ({ systolic, diastolic, heartRate, temperature, spo2 }) => {
   return (
     <div className="bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border border-gray-200 dark:border-gray-800 rounded-3xl p-6 shadow-sm hover:shadow-md transition-all duration-300">
       <h3 className="text-xl font-semibold mb-6 text-gray-800 dark:text-gray-100 flex items-center gap-2">

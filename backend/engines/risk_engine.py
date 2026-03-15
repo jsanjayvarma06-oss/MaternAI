@@ -4,13 +4,15 @@ def calculate_risk_scores(
     vitals: VitalsReading,
     symptoms: SymptomsReport,
     wound: WoundAssessment,
-    patient_data: PatientData,
-    history: list[VitalsReading]
+    day_post_delivery: int,
+    delivery_type: str,
+    history: list[dict] # raw dicts from mongodb
 ) -> RiskScores:
     preeclampsia = 0
     hemorrhage = 0
     blood_clot = 0
     wound_infection = 0
+    ppd = 0
 
     # 1. Preeclampsia Scoring
     if vitals.systolic >= 140 or vitals.diastolic >= 90:
@@ -24,22 +26,19 @@ def calculate_risk_scores(
         preeclampsia += 20
 
     # BP rising trend 3+ consecutive days
-    # Need at least 3 historical readings to evaluate a trend
     if len(history) >= 3:
-        # Check if the last 3 days had increasing systolic or diastolic compared to the previous day
-        bp_rising = True
-        recent_history = sorted(history, key=lambda x: x.timestamp or "")[-3:]
-        prev_sys = recent_history[0].systolic
-        prev_dia = recent_history[0].diastolic
-        for reading in recent_history[1:]:
-            if reading.systolic <= prev_sys and reading.diastolic <= prev_dia:
-                bp_rising = False
+        # Assuming history is sorted oldest to newest for trend check or newest first.
+        # "BP rising trend 3+ days (from MongoDB history): +20"
+        recent = sorted(history, key=lambda x: x["timestamp"])[-3:]
+        is_rising = True
+        pt = recent[0]["vitals"]
+        for r in recent[1:]:
+            curr = r["vitals"]
+            if curr["systolic"] <= pt["systolic"] and curr["diastolic"] <= pt["diastolic"]:
+                is_rising = False
                 break
-            prev_sys = reading.systolic
-            prev_dia = reading.diastolic
-        
-        # also compare latest to current
-        if bp_rising and (vitals.systolic > prev_sys or vitals.diastolic > prev_dia):
+            pt = curr
+        if is_rising and (vitals.systolic > pt["systolic"] or vitals.diastolic > pt["diastolic"]):
             preeclampsia += 20
 
     # 2. Hemorrhage Scoring
@@ -56,7 +55,7 @@ def calculate_risk_scores(
         hemorrhage += 15
 
     # 3. Blood Clot Scoring
-    if patient_data.day_post_delivery <= 42:
+    if day_post_delivery <= 42:
         blood_clot += 10
     
     if symptoms.leg_swelling:
@@ -69,7 +68,7 @@ def calculate_risk_scores(
         blood_clot += 15
 
     # 4. Wound Infection Scoring (C-section only)
-    if patient_data.delivery_type.lower() == "c-section":
+    if delivery_type.lower() == "c-section" and wound and wound.applicable:
         if wound.photo_score == "emergency":
             wound_infection += 80
         elif wound.photo_score == "see_doctor":
@@ -83,15 +82,34 @@ def calculate_risk_scores(
         if symptoms.pain_level > 5:
             wound_infection += 15
 
+    # 5. PPD Risk
+    if symptoms.mood_score <= 2:
+        ppd += 25
+        # Check 3 consecutive days
+        if len(history) >= 2:
+            recent_2 = sorted(history, key=lambda x: x["timestamp"])[-2:]
+            low_mood_streak = True
+            for r in recent_2:
+                if r.get("symptoms", {}).get("mood_score", 5) > 2:
+                    low_mood_streak = False
+                    break
+            if low_mood_streak:
+                ppd += 50
+
+    if symptoms.extreme_fatigue:  # Boolean fallback since frontend just uses yes/no extreme_fatigue
+        ppd += 15
+
     # Cap all scores at 100
     preeclampsia = min(preeclampsia, 100)
     hemorrhage = min(hemorrhage, 100)
     blood_clot = min(blood_clot, 100)
     wound_infection = min(wound_infection, 100)
+    ppd = min(ppd, 100)
 
     return RiskScores(
         preeclampsia=preeclampsia,
         hemorrhage=hemorrhage,
         blood_clot=blood_clot,
-        wound_infection=wound_infection
+        wound_infection=wound_infection,
+        ppd=ppd
     )

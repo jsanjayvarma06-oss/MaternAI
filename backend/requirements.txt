@@ -3,4 +3,5 @@ pydantic
 firebase-admin
 pytest
 google-genai
+anthropic
 uvicorn[standard]

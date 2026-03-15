@@ -1,0 +1,16 @@
+
+> maternaai@0.1.0 dev
+> next dev
+
+ ⚠ Port 3000 is in use, trying 3001 instead.
+ ⚠ Port 3001 is in use, trying 3002 instead.
+ ⚠ Port 3002 is in use, trying 3003 instead.
+ ⚠ Port 3003 is in use, trying 3004 instead.
+ ⚠ Port 3004 is in use, trying 3005 instead.
+  ▲ Next.js 14.2.15
+  - Local:        http://localhost:3005
+  - Environments: .env.local
+
+ ✓ Starting...
+<w> [webpack.cache.PackFileCacheStrategy] Restoring pack from /Users/sanjayvarma/Desktop/MaternAI/maternaai/.next/cache/webpack/client-development.pack.gz failed: TypeError: Cannot read properties of undefined (reading 'hasStartTime')
+ ✓ Ready in 2.2s

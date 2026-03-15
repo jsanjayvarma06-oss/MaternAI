@@ -1,17 +1,15 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+  apiKey: "AIzaSyAMWoBe86qqZtlB5ip83YF0BrIsmORKKAU",
+  authDomain: "maternaai-c6ba3.firebaseapp.com",
+  projectId: "maternaai-c6ba3",
+  storageBucket: "maternaai-c6ba3.firebasestorage.app",
+  messagingSenderId: "323256473733",
+  appId: "1:323256473733:web:15ecf111c57e5a588971ec",
+  measurementId: "G-BK83P5Z0DZ"
 };
 
-// Initialize Firebase
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-const db = getFirestore(app);
-
-export { app, db };
+export const auth = getAuth(app);

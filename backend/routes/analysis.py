@@ -1,117 +1,193 @@
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from typing import Optional, List
+from datetime import datetime
+
 from backend.models.patient import (
-    PatientData, VitalsReading, SymptomsReport, WoundAssessment, AnalysisResult
+    VitalsReading, SymptomsReport, WoundAssessment, AnalysisResult,
+    WeeklyInsightsRequest, WeeklyInsightResult, RiskScores
 )
 from backend.engines.risk_engine import calculate_risk_scores
-from backend.engines.alert_engine import generate_alert
-from backend.engines.wound_analyzer import analyse_wound_photo
-from backend.services.alert_service import notify_doctor
-
-import firebase_admin
-from firebase_admin import credentials, firestore
-
-# Initialize Firestore
-if not firebase_admin._apps:
-    try:
-        cred = credentials.ApplicationDefault()
-        firebase_admin.initialize_app(cred)
-    except Exception:
-        # Fallback for dev purposes if no credentials are provided
-        firebase_admin.initialize_app()
-
-db = firestore.client()
+from backend.engines.gemini_engine import generate_clinical_insight
+from backend.engines.insight_engine import generate_weekly_insight
+from backend.db.mongodb import users_collection, readings_collection, analysis_results_collection, alerts_collection
 
 router = APIRouter()
 
-class AnalyseRequest(BaseModel):
+class ReadingRequest(BaseModel):
     patient_id: str
-    patient_data: PatientData
     vitals: VitalsReading
     symptoms: SymptomsReport
-    wound: Optional[WoundAssessment] = None
-    wound_photo: Optional[str] = None # Base64 encoded image
+    wound: WoundAssessment
 
-@router.post("/analyse", response_model=AnalysisResult)
-async def analyse_patient_reading(request: AnalyseRequest, background_tasks: BackgroundTasks):
+def get_alert_level(risk_scores: RiskScores) -> str:
+    scores = risk_scores.model_dump().values()
+    if any(s >= 70 for s in scores):
+        return "RED"
+    elif any(30 <= s <= 69 for s in scores):
+        return "YELLOW"
+    return "GREEN"
+
+from fastapi import status, Response
+
+@router.post("/readings", status_code=status.HTTP_201_CREATED)
+async def submit_reading(req: ReadingRequest, background_tasks: BackgroundTasks):
     try:
-        # Fetch history from Firebase
-        history_ref = db.collection("readings").where("patientId", "==", request.patient_id)\
-                        .order_by("timestamp", direction=firestore.Query.DESCENDING).limit(10).stream()
+        # 1. Fetch patient profile for delivery context
+        patient = await users_collection.find_one({"_id": req.patient_id})
+        if not patient:
+            raise HTTPException(status_code=404, detail="Patient profile not found")
         
-        history = []
-        for doc in history_ref:
-            history.append(VitalsReading(**doc.to_dict()))
-        
-        # Risk scores calculation
-        wound = request.wound or WoundAssessment(applicable=False)
+        # Calculate day post delivery
+        birthdate = datetime.fromisoformat(patient["child_birthdate"])
+        day_post_delivery = (datetime.utcnow() - birthdate).days
+        day_post_delivery = max(0, day_post_delivery) # Enforce >= 0
+        delivery_type = patient.get("delivery_type", "vaginal")
+        doctor_id = patient.get("doctor_id")
 
-        # If wound photo exists, AI engine is called
-        if request.wound_photo:
-            wound = await analyse_wound_photo(request.wound_photo, request.patient_data.day_post_delivery)
-        else:
-            wound = request.wound or WoundAssessment(applicable=False)
+        # 2. Extract 7-day history for trend analysis
+        history_cursor = readings_collection.find({"patient_id": req.patient_id}).sort("timestamp", -1).limit(7)
+        history_docs = await history_cursor.to_list(length=7)
 
+        # 3. Calculate explicit Risk Rubric Scores
         risk_scores = calculate_risk_scores(
-            vitals=request.vitals,
-            symptoms=request.symptoms,
-            wound=wound,
-            patient_data=request.patient_data,
-            history=history
+            vitals=req.vitals,
+            symptoms=req.symptoms,
+            wound=req.wound,
+            day_post_delivery=day_post_delivery,
+            delivery_type=delivery_type,
+            history=history_docs
         )
 
-        alert_data = generate_alert(risk_scores, request.patient_data)
+        alert_level = get_alert_level(risk_scores)
 
-        # Notify doctor if RED
-        if alert_data["doctor_notification"]:
-            background_tasks.add_task(notify_doctor, request.patient_id, risk_scores, request.vitals)
-
-        # Save the reading and result asynchronously
+        # 4. Save the reading to MongoDB
+        timestamp = datetime.utcnow().isoformat()
         reading_doc = {
-            "patientId": request.patient_id,
-            "vitals": request.vitals.model_dump(),
-            "symptoms": request.symptoms.model_dump(),
-            "wound": wound.model_dump() if wound else None,
-            "timestamp": firestore.SERVER_TIMESTAMP,
-            "risk_scores": risk_scores.model_dump(),
-            "alert_level": alert_data["alert_level"]
+            "patient_id": req.patient_id,
+            "day_post_delivery": day_post_delivery,
+            "timestamp": timestamp,
+            "vitals": req.vitals.model_dump(),
+            "symptoms": req.symptoms.model_dump(),
+            "wound": req.wound.model_dump()
         }
-        
-        background_tasks.add_task(db.collection("readings").add, reading_doc)
-        
-        return AnalysisResult(
+        res = await readings_collection.insert_one(reading_doc)
+        reading_id = str(res.inserted_id)
+
+        # 5. Gemini AI Clinical Analysis
+        clinical_data = await generate_clinical_insight(reading=reading_doc, history=history_docs)
+
+        # 6. Save Analysis Result to MongoDB
+        analysis_doc = {
+            "reading_id": reading_id,
+            "patient_id": req.patient_id,
+            "timestamp": timestamp,
+            "risk_scores": risk_scores.model_dump(),
+            "alert_level": alert_level,
+            "patient_message": clinical_data.get("patient_message", ""),
+            "recommended_action": clinical_data.get("recommended_action", ""),
+            "doctor_notified": clinical_data.get("doctor_notification", {}).get("required", False),
+            "insights": clinical_data.get("insights", [])
+        }
+        await analysis_results_collection.insert_one(analysis_doc)
+
+        # 7. Create Alert for Doctor if Red
+        if alert_level == "RED" and doctor_id:
+            alert_doc = {
+                "doctor_id": doctor_id,
+                "patient_id": req.patient_id,
+                "patient_name": patient.get("name"),
+                "reading_id": reading_id,
+                "status": "unread",
+                "timestamp": timestamp,
+                "clinical_summary": clinical_data.get("doctor_notification", {}).get("summary", ""),
+                "alert_level": alert_level
+            }
+            background_tasks.add_task(alerts_collection.insert_one, alert_doc)
+
+        # Return exact model
+        analysis_res = AnalysisResult(
             risk_scores=risk_scores,
-            alert_level=alert_data["alert_level"],
-            patient_message=alert_data["patient_message"],
-            recommended_action=alert_data["recommended_action"],
-            doctor_notification=alert_data["doctor_notification"],
-            urgency=alert_data["urgency"]
+            alert_level=alert_level,
+            patient_message=analysis_doc["patient_message"],
+            recommended_action=analysis_doc["recommended_action"],
+            doctor_notification=analysis_doc["doctor_notified"],
+            urgency=clinical_data.get("doctor_notification", {}).get("urgency", "low")
         )
 
+        return {
+            "success": True,
+            "reading_id": reading_id,
+            "analysis": analysis_res.model_dump()
+        }
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return Response(content='{"success": false, "error": "Failed to save reading"}', status_code=500, media_type="application/json")
+
+@router.get("/patient/{patient_id}/history")
+async def get_patient_history(patient_id: str, days: int = 7):
+    # Used for Dashboard
+    try:
+        docs = await readings_collection.find({"patient_id": patient_id})\
+                 .sort("timestamp", -1).limit(days).to_list(length=days)
+        return docs
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/patient/{patient_id}/history", response_model=List[VitalsReading])
-def get_patient_history(patient_id: str, days: int = 7):
-    # Retrieve last `days` readings
+@router.post("/insights/weekly", response_model=WeeklyInsightResult)
+async def get_weekly_insight(request: WeeklyInsightsRequest):
     try:
-        docs = db.collection("readings").where("patientId", "==", patient_id)\
-                 .order_by("timestamp", direction=firestore.Query.DESCENDING).limit(days).stream()
+        insight = await generate_weekly_insight(request)
+        return WeeklyInsightResult(insight=insight)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/dashboard/{patient_id}")
+async def get_patient_dashboard(patient_id: str):
+    try:
+        patient = await users_collection.find_one({"_id": patient_id})
+        if not patient:
+            raise HTTPException(status_code=404, detail="Patient not found")
         
-        history = [VitalsReading(**d.to_dict()["vitals"]) for d in docs]
-        return history
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Latest analysis
+        latest_analysis = await analysis_results_collection.find_one(
+            {"patient_id": patient_id},
+            sort=[("timestamp", -1)]
+        )
 
-@router.post("/patient/{patient_id}/reading")
-def save_reading(patient_id: str, vitals: VitalsReading):
-    try:
-        db.collection("readings").add({
-            "patientId": patient_id,
-            "vitals": vitals.model_dump(),
-            "timestamp": firestore.SERVER_TIMESTAMP
+        # 7 Day History
+        history = await readings_collection.find({"patient_id": patient_id})\
+                 .sort("timestamp", -1).limit(7).to_list(length=7)
+        
+        # Serialize _id
+        if patient.get("_id"):
+            patient["_id"] = str(patient["_id"])
+        if latest_analysis and latest_analysis.get("_id"):
+            latest_analysis["_id"] = str(latest_analysis["_id"])
+            latest_analysis["reading_id"] = str(latest_analysis["reading_id"])
+        for h in history:
+            h["_id"] = str(h["_id"])
+
+        # Check for today's reading
+        today = datetime.utcnow()
+        start_of_day = today.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        end_of_day = today.replace(hour=23, minute=59, second=59, microsecond=999999).isoformat()
+        
+        todays_reading = await readings_collection.find_one({
+            "patient_id": patient_id,
+            "timestamp": {
+                "$gte": start_of_day,
+                "$lte": end_of_day
+            }
         })
-        return {"status": "success"}
+
+        return {
+            "patient": patient,
+            "latest_analysis": latest_analysis,
+            "history": history,
+            "has_todays_reading": bool(todays_reading)
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

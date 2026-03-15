@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useRef, useState, useCallback } from 'react';
-import { Camera, Image as ImageIcon, X, Loader2, Sparkles } from 'lucide-react';
+import { Camera, X, Loader2, Sparkles } from 'lucide-react';
 
 interface WoundPhotoUploadProps {
   onPhotoCapture: (base64Data: string) => void;
@@ -35,7 +35,7 @@ export const WoundPhotoUpload: React.FC<WoundPhotoUploadProps> = ({
         videoRef.current.srcObject = mediaStream;
       }
       setError("");
-    } catch (err) {
+    } catch {
       setError("Could not access camera. Please check permissions.");
     }
   };
