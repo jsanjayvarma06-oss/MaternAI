@@ -1,0 +1,35 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* MaternaAI Palette */
+  --color-primary: #E8927C; /* warm coral */
+  --color-primary-light: #FDF0ED;
+  --color-secondary: #7BB5A2; /* soft teal */
+  --color-secondary-light: #EEF7F4;
+  --color-success: #6BAE8E; /* soft green */
+  --color-warning: #E8B96A; /* amber */
+  --color-danger: #D96B6B; /* soft red */
+  
+  --background: #FDFAF8; /* warm off-white */
+  --surface: #FFFFFF;
+  
+  --text-primary: #2D2926;
+  --text-secondary: #7A6F6A;
+  --text-muted: #B0A8A4;
+
+  /* Font variables populated by next/font in layout.tsx */
+}
+
+@layer base {
+  body {
+    @apply bg-[var(--background)] text-[var(--text-primary)] font-body antialiased;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
