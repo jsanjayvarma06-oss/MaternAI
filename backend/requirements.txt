@@ -1,0 +1,6 @@
+fastapi
+pydantic
+firebase-admin
+pytest
+google-genai
+uvicorn[standard]
